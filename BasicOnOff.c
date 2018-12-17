@@ -2,8 +2,15 @@
  * BasicOnOff provides a very minimal utility to interface to the Z-Wave 
  * SerialAPI and provides a couple of command line commands to turn a light
  * on, off or dim.
+ * This is JUST A DEMO! It is not intended as a full-featured implementation!
+ * This program provides enough functionality to show you how to get 
+ * started using Z-Wave at a most basic level.
+ * The recommended controller solution is to use Z/IP an Z-Ware as described
+ * here: https://www.silabs.com/products/development-tools/software/z-wave/controller-sdk/z-ip-gateway-sdk
  * Z-Wave documentation is at: https://www.silabs.com/support/z-wave
  * SerialAPI documentation: INS12350 Serial API Host Appl. Prg. Guide
+ *
+ * You will likely have to recompile this code with the proper setting for UART_PORT - see below
  */
 
 
@@ -21,18 +28,20 @@
 #define UART_PORT "/dev/ttyAMA0"
 //#define UART_PORT "/dev/ttyACM0"
 
+// RX/TX UART buffer size. Most Z-Wave frames are under 64 bytes.
 #define BUF_SIZE 128
 
 void usage() {
     printf("\nBasicOnOff NodeID CMD [options]\n");
     printf("BasicOnOff will send CMD to NodeID over the Z-Wave interface in BasicOnOff.ini\n");
     printf("NodeID is decimal\n");
-    printf("If BasicOnOff.ini doesn't exist, the user is prompted to enter it\n");
     printf("Ex: BasicOnOff include - put the Z-Wave interface into inclusion (add) mode and returns the NodeID or 00 if none\n");
-    printf("    BasicOnOff Exclude - put the Z-Wave interface into exclusion (remove) mode\n");
+    printf("    BasicOnOff exclude - put the Z-Wave interface into exclusion (remove) mode\n");
     printf("    BasicOnOff 3 on    - Send a Basic ON to node 003\n");
     printf("    BasicOnOff 3 on    - Send a Basic ON to node 003\n");
     printf("    BasicOnOff info    - Print details of the Z-Wave network\n");
+    printf("    BasicOnOff reset   - Soft Reset the UZB\n");
+    printf("    BasicOnOff default - Reset the UZB to factory defaults - deletes the Z-Wave network and picks a new random HomeID\n");
 }
 
 int uzb;
@@ -51,40 +60,43 @@ int checksum(char *pkt, int len) { /* returns the checksum of PKT */
 int GetSerial(char *pkt) { /* Get SerialAPI frame from UART. Returns the length of pkt and data in PKT */
     /* strips the SOF/LEN/Type and checksum and ACKs the frame if the checksum is OK */
     int i,j,len,type,index;
+    char ack=ACK;
     int searching=true;
-    char buf[BUF_SIZE];
     i=0;
 
     while (searching) {                     // Seach for the SOF is complete when we find the SOF and type fields
-        for (j=0; i<1 && j<1000; j++) { 
+        for (j=0; i<1 && j<250; j++) {      // wait up to about 250ms - if waiting for a routed frame this might need to be longer
             i=read(uzb,pkt,1);
-            if (i==1) printf("c=%02X",pkt[0]);
-            if (i==1 && readBuf[0]!=SOF) i=0;
+            if (i==1 && readBuf[0]!=SOF) i=0;  // drop anything until SOF
+            usleep(1000);                   // Wait 1ms
         }
-        if (i!=1) return(-1);   // no frame so just return -1
-        i=read(uzb,pkt,1);
+        if (i!=1) {
+            return(-1);   // no frame so just return -1
+        }
+        i=read(uzb,pkt,1);                  // LEN
         len=pkt[0];
-        printf("len=%d",len);
-        i=read(uzb,pkt,1);
+        i=read(uzb,pkt,1);                  // TYPE (must be 00 or 01)
         type=pkt[0];
-        printf("Type=%d",type);
         if (type<=0x01) searching=false;    // TODO could also qualify that LEN is less than 64?
     }
     i=0; index=0;
-    for (j=0; j<1000 && index<len; j++) { 
+    for (j=0; j<1000 && index<(len-1); j++) { 
         i=read(uzb,&pkt[index],len);
+        if (i<1) {                          // Nothing yet
+            usleep(100);                    // Wait 100uS
+        }
         if (i>0) {
             index+=i;
-            printf("I=%d",i);
         }
     }
-    buf[0]=ACK;
-    write(uzb,buf,1);   // ACK the frame
+    // TODO add the checksum check here
+    write(uzb,&ack,1);   // ACK the frame
     return(len);
 } /* GetSerial */
 
-int SendSerial(char *pkt,int len) { /* send SerialAPI command PKT of length LEN after encapsulating */
+int SendSerial(const char *pkt,int len) { /* send SerialAPI command PKT of length LEN after encapsulating */
     /* Returns ACK/NAK/CAN if the packet was delivered to the UZB, -1 if no response */
+    /* if not ACKed, will try a total of 3 times */
     /* SerialAPI format:
      * SOF      =0x01
      * LEN      =Number of bytes in this frame not including SOF and CHECKSUM (or all bytes-2)
@@ -95,6 +107,8 @@ int SendSerial(char *pkt,int len) { /* send SerialAPI command PKT of length LEN 
      */
     char buf[BUF_SIZE];
     int i,j;
+    int retry;
+    int ack=ACK;
     buf[0]=SOF;
     buf[1]=len+2; // add LEN, TYPE
     buf[2]=REQUEST;
@@ -105,22 +119,32 @@ int SendSerial(char *pkt,int len) { /* send SerialAPI command PKT of length LEN 
     for (i=0;i<(len+4); i++) {
         printf(" %02X",buf[i]);
     }
-#endif
     printf("\n");
-    tcflush(uzb,TCIFLUSH);  // purge the UART Rx Buffer
-    write(uzb,buf,len+4);   // Send the frame to the UZB
-    i=0;
-    for (j=0; i<1 && j<10000; j++) {
-        i=read(uzb,readBuf,1);          // Get the ACK/NAK/CAN
+#endif
+    for (retry=1;retry<=3;retry++) {    // retry up to 3 times
+        tcflush(uzb,TCIFLUSH);  // purge the UART Rx Buffer
+        write(uzb,buf,len+4);   // Send the frame to the UZB
+        i=0;
+        for (j=0; i<1 && j<10000; j++) {
+            i=read(uzb,readBuf,1);          // Get the ACK/NAK/CAN
+        }
+        if (i==1) {
+            if (readBuf[0]==ACK) break; // Got the ACK so return
+            write(uzb,&ack,1);          // Got something else so try sending an ACK to clear
+        }
+        sleep(2);      // wait a bit and try again
     }
-    if (i!=1) return(-1);
+    if (i!=1) {
+        printf("UART Timeout");
+        return(-1);
+    }
     return(readBuf[0]);
 } /* SendSerial */
 
 int main(int argc, char *argv[]) { /*****************MAIN*********************/
     struct termios Settings; 
     int count;
-    int ack;
+    int ack,len,i,j;
 
     if (argc<2) {
         usage();
@@ -150,12 +174,34 @@ int main(int argc, char *argv[]) { /*****************MAIN*********************/
 
     if (strstr("info",argv[1])) { // Get the Z-Wave network info from the UZB
         //sendBuf[0]=FUNC_ID_ZW_GET_VERSION; 
-        sendBuf[0]=FUNC_ID_SERIAL_API_GET_CAPABILITIES;
+        sendBuf[0]=FUNC_ID_SERIAL_API_GET_INIT_DATA;
         ack=SendSerial(sendBuf,1);
-        printf("SendSerial returned %02X\n",ack);
-        ack=GetSerial(readBuf);
-        printf("GetSerial returned %02X\n",ack);
-
+        if (ack!=ACK) {
+            printf("Unable to send Z-Wave SerialAPI command API_GET_INIT_DATA %02X",ack);
+        } else {
+            len=GetSerial(readBuf);
+            if (len<20 || readBuf[0]!=FUNC_ID_SERIAL_API_GET_INIT_DATA) {
+                printf("Incorrect response = %02X, %02X\n",len,readBuf[0]);
+                printf("%02X, %02X\n",readBuf[1],readBuf[2]);
+            } else {
+                printf("SerialAPI Version=%d\n",readBuf[1]);
+                if (readBuf[2]&0x04) printf("Secondary ");
+                else                 printf("Primary   ");
+                if (readBuf[2]&0x01) printf("Slave      ");
+                else                 printf("Controller ");
+                if (readBuf[2]&0x08) printf("SIS ");
+                else                 printf("    ");
+                printf("\nNodes:");
+                for (i=0;i<readBuf[3];i++) {
+                    for (j=0;j<8;j++) {
+                        if (readBuf[i+4]&(1<<j)) {
+                            printf(" %03d", i*8+j+1);
+                        }
+                    }  
+                }
+                printf("\n");
+            }
+        }
     }
 
     close(uzb);

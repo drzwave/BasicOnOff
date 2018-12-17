@@ -11,7 +11,7 @@ Note that this is a _DEMO_ program! It is *NOT* a full-featured Z-Wave interface
    3. Install gcc if you don't already have it
    4. Execute the BasicOnOff.sh script to compile the program
    5. Plug in the UZB and with wall switch
-   6. Identify the COM port (Windows) or /dev/tty (Linux) port for the UZB
+   6. Identify the /dev/tty (Linux) port for the UZB
    7. BasicOnOff is a command line program:
         - BasicOnOff Reset              Reset the UZB to factory default
         - BasicOnOff Include            Add a Node to the Z-Wave network. Returns the decimal value of the NodeID
@@ -23,6 +23,8 @@ Note that this is a _DEMO_ program! It is *NOT* a full-featured Z-Wave interface
     8. The first time the program is run it will ask for the COM/TTY port to use and then store that value in the BasicOnOff.ini file
 
 See the code for more details.
+
+Only tested on Linux and on a Raspberry Pi. Other platforms will require more work...
 
 - How to get this repository
    - git clone https://<YourUserName>@github.org/DrZWave/BasicOnOff.git <directory_name> - will create a local repository
