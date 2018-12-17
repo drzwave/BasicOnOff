@@ -22,7 +22,11 @@
 #define FUNC_ID_SERIAL_API_GET_CAPABILITIES 	 0x07
 #define FUNC_ID_SERIAL_API_SOFT_RESET 	 0x08
 #define FUNC_ID_ZW_GET_PROTOCOL_VERSION 	 0x09
-#define FUNC_ID_SERIAL_API_APPL_NODE_ROLE_TYPE 	 0x0A
+
+/* Function ID for startup message */
+#define FUNC_ID_SERIAL_API_STARTED                      0x0A
+#define FUNC_ID_SERIAL_API_SETUP                        0x0B
+
 #define FUNC_ID_ZW_SET_RF_RECEIVE_MODE 	 0x10
 #define FUNC_ID_ZW_SET_SLEEP_MODE 	 0x11
 #define FUNC_ID_ZW_SEND_NODE_INFORMATION 	 0x12
@@ -150,3 +154,43 @@
 #define FUNC_ID_ZW_ECHO_REQUEST 	 FUNC_ID_PROPRIETARY_0
 #define FUNC_ID_ZW_ECHO_REQUEST_LONG 	 FUNC_ID_PROPRIETARY_1
 #define FUNC_ID_UNKNOWN 	 0xFF
+
+
+/* Mode parameters to ZW_AddNodeToNetwork */
+#define ADD_NODE_ANY          1
+#define ADD_NODE_CONTROLLER   2
+#define ADD_NODE_SLAVE        3
+#define ADD_NODE_EXISTING     4
+#define ADD_NODE_STOP         5
+#define ADD_NODE_STOP_FAILED  6
+#define ADD_NODE_RESERVED     7
+#define ADD_NODE_HOME_ID      8
+#define ADD_NODE_SMART_START  9
+
+/* Callback states from ZW_AddNodeToNetwork */
+#define ADD_NODE_STATUS_LEARN_READY          1
+#define ADD_NODE_STATUS_NODE_FOUND           2
+#define ADD_NODE_STATUS_ADDING_SLAVE         3
+#define ADD_NODE_STATUS_ADDING_CONTROLLER    4
+#define ADD_NODE_STATUS_PROTOCOL_DONE        5
+#define ADD_NODE_STATUS_DONE                 6
+#define ADD_NODE_STATUS_FAILED               7
+#define ADD_NODE_STATUS_NOT_PRIMARY          0x23
+
+/* Transmit frame option flags */
+#define TRANSMIT_OPTION_ACK                     0x01    /* request acknowledge from destination node */
+#define TRANSMIT_OPTION_LOW_POWER               0x02    /* transmit at low output power level (1/3 of normal RF range) */
+#define TRANSMIT_OPTION_MULTICAST_AS_BROADCAST  0x02    /* The multicast frame should be send as a broadcast */
+#ifdef ZW_SLAVE
+#define TRANSMIT_OPTION_RETURN_ROUTE            0x04    /* request transmission via return route */
+#endif
+#define TRANSMIT_OPTION_AUTO_ROUTE              0x04    /* request retransmission via repeater nodes */
+/* do not use response route - Even if available */
+#define TRANSMIT_OPTION_NO_ROUTE                0x10
+/* Use explore frame if needed */
+#define TRANSMIT_OPTION_EXPLORE                 0x20
+
+/* Z-Wave Command Classes */
+#define COMMAND_CLASS_BASIC                                                              0x20
+#define BASIC_SET                                                                        0x01
+

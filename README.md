@@ -13,18 +13,20 @@ Note that this is a _DEMO_ program! It is *NOT* a full-featured Z-Wave interface
    5. Plug in the UZB and with wall switch
    6. Identify the /dev/tty (Linux) port for the UZB
    7. BasicOnOff is a command line program:
-        - BasicOnOff Reset              Reset the UZB to factory default
-        - BasicOnOff Include            Add a Node to the Z-Wave network. Returns the decimal value of the NodeID
-        - BasicOnOff Exclude            Remove a Node 
-        - BasicOnOff <NodeID> On        Send a BASIC ON to NodeID
-        - BasicOnOff <NodeID> Off       Send a BASIC OFF to NodeID
-        - BasicOnOff <NodeID> <dim Level> [<Duration>]      Send Dim Level (0-99) to NodeID with optional ramp Duration (0-99 seconds)
+        - BasicOnOff default            Reset the UZB to factory default
+        - BasicOnOff reset              Soft Reset the UZB
+        - BasicOnOff include            Add a Node to the Z-Wave network. Returns the decimal value of the NodeID
+        - BasicOnOff exclude            Remove a Node 
+        - BasicOnOff info               Print details of the Z-Wave network including a list of NodeIDs
+        - BasicOnOff <NodeID> on        Send a BASIC ON to NodeID
+        - BasicOnOff <NodeID> off       Send a BASIC OFF to NodeID
+        - BasicOnOff <NodeID> dim <dim Level> [<Duration>]      Send Dim Level (0-99) to NodeID with optional ramp Duration (0-99 seconds)
         - NodeID is the decimal NodeID of the wall switch or other device
-    8. The first time the program is run it will ask for the COM/TTY port to use and then store that value in the BasicOnOff.ini file
+    8. Change the UART_PORT define in the BasicOnOff.c file to use a different UART port
 
 See the code for more details.
 
-Only tested on Linux and on a Raspberry Pi. Other platforms will require more work...
+Only tested on Linux on a Raspberry Pi. Other platforms will require more work...
 
 - How to get this repository
    - git clone https://<YourUserName>@github.org/DrZWave/BasicOnOff.git <directory_name> - will create a local repository
