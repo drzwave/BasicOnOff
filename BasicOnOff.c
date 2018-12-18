@@ -166,7 +166,7 @@ int main(int argc, char *argv[]) { /*****************MAIN*********************/
     Settings.c_cflag |= CS8;
     Settings.c_cflag &= ~CRTSCTS;
     Settings.c_iflag &= ~(IXON | IXOFF | IXANY);
-    Settings.c_iflag &= ~(ICANON | ECHO | ECHOE | ISIG);
+    Settings.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
     Settings.c_oflag &= ~OPOST;
     Settings.c_cc[VMIN] = BUF_SIZE;
     Settings.c_cc[VTIME] = 1; // wait this many 100mSec if no chars are available yet - need to wait for the ACK 
