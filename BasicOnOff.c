@@ -145,7 +145,6 @@ int SendSerial(const char *pkt,int len) { /* send SerialAPI command PKT of lengt
 
 int main(int argc, char *argv[]) { /*****************MAIN*********************/
     struct termios Settings; 
-    int count;
     int ack,len,i,j;
     int NodeID;
 
