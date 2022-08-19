@@ -26,8 +26,8 @@
 #include "ZWave.h"      /* Z-Wave defines */
 
 // Typically a UZB is /dev/ttyACM0 and the UART on the Raspberry Pi GPIO pins is /dev/ttyAMA0
-#define UART_PORT "/dev/ttyAMA0"
-//#define UART_PORT "/dev/ttyACM0"
+//#define UART_PORT "/dev/ttyAMA0"
+#define UART_PORT "/dev/ttyACM0"
 
 // RX/TX UART buffer size. Most Z-Wave frames are under 64 bytes.
 #define BUF_SIZE 128
@@ -47,8 +47,8 @@ void usage() {
 }
 
 int uzb;
-unsigned char readBuf[BUF_SIZE];
-unsigned char sendBuf[BUF_SIZE];
+char readBuf[BUF_SIZE];
+char sendBuf[BUF_SIZE];
 
 unsigned char checksum(char *pkt, int len) { /* returns the checksum of PKT */
     int i;
@@ -116,7 +116,7 @@ int SendSerial(const char *pkt,int len) { /* send SerialAPI command PKT of lengt
     buf[2]=REQUEST;
     memcpy(&buf[3],pkt,len);
     buf[len+3]=checksum(&buf[1],len+2);
-#if 0
+#ifdef DEBUG // tx debug
     printf("Sending");
     for (i=0;i<(len+4); i++) {
         printf(" %02X",buf[i]);
@@ -199,12 +199,28 @@ int main(int argc, char *argv[]) { /*****************MAIN*********************/
                         if (readBuf[i+4]&(1<<j)) {
                             printf(" %03d", i*8+j+1);
                         }
-                    }  
+                    }
                 }
                 printf("\n");
             }
         }
-        // TODO - add printing out the HomeID here. Could print out all sorts of info...
+        // Now let's get capabilities
+        sendBuf[0]=FUNC_ID_SERIAL_API_GET_CAPABILITIES;
+        ack=SendSerial(sendBuf,1);
+        if (ack!=ACK) {
+            printf("Unable to send Z-Wave SerialAPI command SERIAL_API_GET_CAPABILITIES %02X",ack);
+        } else {
+            len=GetSerial(readBuf);
+            if (len<20 || readBuf[0]!=FUNC_ID_SERIAL_API_GET_CAPABILITIES ) {
+                printf("Incorrect response = %02X, %02X\n",len,readBuf[0]);
+                printf("%02X, %02X\n",readBuf[1],readBuf[2]);
+            } else {
+                printf("SerialAPI Ver=%d.%d\n",readBuf[1], readBuf[2]);
+                printf("Product Type/Product ID: 0x%x/0x%x\r\n",
+                readBuf[5] << 8 | readBuf[6],
+                readBuf[7] << 8 | readBuf[8]);
+            }
+        }
     }   // INFO
 
     else if (strstr("reset",argv[1])) { // Send a soft reset - takes 1.5s to complete
@@ -250,7 +266,7 @@ int main(int argc, char *argv[]) { /*****************MAIN*********************/
             for (i=0;i<(10*4) && len<1; i++) {           // wait for ~10s for the user to push a button
                 len=GetSerial(readBuf);                 // wait for 250ms looking for a command
                 if (len>0) {
-#if 1
+#ifdef DEBUG
                     printf("\nlen=%d",len);             // enable these to see each step of the callback process
                     for (j=0;j<len;j++) printf(" %02X",readBuf[j]);
 #endif
