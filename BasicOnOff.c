@@ -108,7 +108,6 @@ int SendSerial(const char *pkt,int len) { /* send SerialAPI command PKT of lengt
      * CHECKSUM = XOR of all bytes except SOF. Should be 0 if checksum is OK. NAK is sent if checksum fails.
      */
     char buf[BUF_SIZE];
-    int i,j;
     int sendStatus;
     int retry;
     int ack=ACK;
@@ -119,6 +118,7 @@ int SendSerial(const char *pkt,int len) { /* send SerialAPI command PKT of lengt
     buf[len+3]=checksum(&buf[1],len+2);
 #ifdef DEBUG // tx debug
     printf("Sending");
+    int i;
     for (i=0;i<(len+4); i++) {
         printf(" %02X",buf[i]);
     }
