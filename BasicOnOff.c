@@ -109,6 +109,7 @@ int SendSerial(const char *pkt,int len) { /* send SerialAPI command PKT of lengt
      */
     char buf[BUF_SIZE];
     int i,j;
+    int sendStatus;
     int retry;
     int ack=ACK;
     buf[0]=SOF;
@@ -126,18 +127,17 @@ int SendSerial(const char *pkt,int len) { /* send SerialAPI command PKT of lengt
     for (retry=1;retry<=3;retry++) {    // retry up to 3 times
         tcflush(uzb,TCIFLUSH);  // purge the UART Rx Buffer
         write(uzb,buf,len+4);   // Send the frame to the UZB
-        i=0;
-        for (j=0; i<1 && j<10000; j++) {
-            i=read(uzb,readBuf,1);          // Get the ACK/NAK/CAN
-        }
-        if (i==1) {
-            if (readBuf[0]==ACK) break; // Got the ACK so return
+        sendStatus=0;
+        usleep(10000); // wait 10ms then read the ACK
+        sendStatus = read(uzb,readBuf,1);          // Get the ACK/NAK/CAN
+        if (sendStatus==1) {
+            if (readBuf[0]==ACK) break; // Got the ACK so break
             write(uzb,&ack,1);          // Got something else so try sending an ACK to clear
         }
         sleep(2);      // wait a bit and try again
     }
-    if (i!=1) {
-        printf("UART Timeout");
+    if (sendStatus!=1) {
+        printf("UART Timeout\r\n");
         return(-1);
     }
     return(readBuf[0]);
@@ -159,6 +159,9 @@ int main(int argc, char *argv[]) { /*****************MAIN*********************/
     tcgetattr(uzb,&Settings);
     cfsetispeed(&Settings,B115200);
     cfsetospeed(&Settings,B115200);
+
+    Settings.c_cflag |= CLOCAL; // ignore model control lines
+    Settings.c_cflag |= CREAD; // enable receiver
     Settings.c_cflag &= ~PARENB;
     Settings.c_cflag &= ~CSTOPB;
     Settings.c_cflag &= ~CSIZE;
