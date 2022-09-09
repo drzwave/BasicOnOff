@@ -35,6 +35,7 @@
 
 #define ACK_DELAY_MS 25 // ACK will come much more quickly than this, but
                         // Linux delays can cause the read to be delayed
+#define SOFT_RESET_DELAY_MS 3000 //soft reset will complete by 3sec
 
 long sw_timer(bool init);
 
@@ -181,6 +182,7 @@ int main(int argc, char *argv[]) { /*****************MAIN*********************/
     struct termios Settings; 
     int ack,len,i,j;
     int NodeID;
+    long ms;
 
     if (argc<2) {
         usage();
@@ -238,6 +240,9 @@ int main(int argc, char *argv[]) { /*****************MAIN*********************/
                     }
                 }
                 printf("\n");
+                i = readBuf[3] + 4;
+                printf("chip_type=0x%x, chip_version=0x%x\r\n",
+                  readBuf[i], readBuf[i+1]);
             }
         }
         // Now let's get capabilities
@@ -265,15 +270,24 @@ int main(int argc, char *argv[]) { /*****************MAIN*********************/
         if (ack!=ACK) {
             printf("Unable to send Z-Wave SerialAPI command API_SOFT_RESET %02X",ack);
         } else {
-            sleep(1); // The UZB should respond with a START after about 1s
+          ms = sw_timer(true); // ms will be zero
+          do {
             len=GetSerial(readBuf);
+            if (len > 0) {
+              #ifdef DEBUG
+              printf("read data @ time %ld ms\n",ms);
+              #endif
+              break;
+            }
+            ms = sw_timer(false);
+          } while (ms < SOFT_RESET_DELAY_MS);
             if (readBuf[0]==FUNC_ID_SERIAL_API_STARTED) {
                 printf("UZB softreset complete\n");
             } else {
                 printf("UZB softreset failed %02X\n",readBuf[0]);
-            }  
+            }
         }
-    } 
+    }
 
     else if (strstr("default",argv[1])) { // Delete the Z-Wave network and reset to factory defaults
         sendBuf[0]=FUNC_ID_ZW_SET_DEFAULT;
