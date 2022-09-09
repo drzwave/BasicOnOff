@@ -23,14 +23,20 @@
 #include <stdlib.h>
 #include <time.h>
 #include <stdbool.h>
+#include <math.h>
 #include "ZWave.h"      /* Z-Wave defines */
 
 // Typically a UZB is /dev/ttyACM0 and the UART on the Raspberry Pi GPIO pins is /dev/ttyAMA0
 //#define UART_PORT "/dev/ttyAMA0"
-#define UART_PORT "/dev/ttyACM0"
+#define UART_PORT "/dev/tty.usbmodem0004401457991"
 
 // RX/TX UART buffer size. Most Z-Wave frames are under 64 bytes.
 #define BUF_SIZE 128
+
+#define ACK_DELAY_MS 25 // ACK will come much more quickly than this, but
+                        // Linux delays can cause the read to be delayed
+
+long sw_timer(bool init);
 
 void usage() {
     printf("\nBasicOnOff NodeID CMD [options]\n");
@@ -108,9 +114,10 @@ int SendSerial(const char *pkt,int len) { /* send SerialAPI command PKT of lengt
      * CHECKSUM = XOR of all bytes except SOF. Should be 0 if checksum is OK. NAK is sent if checksum fails.
      */
     char buf[BUF_SIZE];
-    int sendStatus;
+    int rxStatus;
     int retry;
     int ack=ACK;
+    long ms;
     buf[0]=SOF;
     buf[1]=len+2; // add LEN, TYPE
     buf[2]=REQUEST;
@@ -125,18 +132,45 @@ int SendSerial(const char *pkt,int len) { /* send SerialAPI command PKT of lengt
     printf("\n");
 #endif
     for (retry=1;retry<=3;retry++) {    // retry up to 3 times
-        tcflush(uzb,TCIFLUSH);  // purge the UART Rx Buffer
+      #ifdef DEBUG
+        printf("Try #%d\n", retry);
+      #endif
+        tcflush(uzb,TCIOFLUSH);  // purge the UART Rx Buffer
         write(uzb,buf,len+4);   // Send the frame to the UZB
-        sendStatus=0;
-        usleep(10000); // wait 10ms then read the ACK
-        sendStatus = read(uzb,readBuf,1);          // Get the ACK/NAK/CAN
-        if (sendStatus==1) {
-            if (readBuf[0]==ACK) break; // Got the ACK so break
-            write(uzb,&ack,1);          // Got something else so try sending an ACK to clear
+        rxStatus=0;
+        ms = sw_timer(true); // ms will be zero
+        do {
+          rxStatus = read(uzb,readBuf,1);          // Get the ACK/NAK/CAN
+          if (rxStatus == 1) {
+            #ifdef DEBUG
+            printf("read data @ time %ld ms\n",ms);
+            #endif
+            break;
+          }
+          ms = sw_timer(false);
+        } while (ms < ACK_DELAY_MS);
+        if (rxStatus==1) {
+            if (readBuf[0]==ACK)
+            {
+              #ifdef DEBUG
+              printf("ACK RX!\n");
+              #endif
+              break; // Got the ACK so break
+            } else if (readBuf[0] == CAN) {
+              #ifdef DEBUG
+              printf("CAN received, retry\n");
+              #endif
+            } else {
+              #ifdef DEBUG
+              printf("instead of ACK/CAN, received 0x%x\n", readBuf[0]);
+              #endif
+              // Got something other than ACK or CAN, so try sending an ACK to clear
+              write(uzb,&ack,1);
+            }
         }
         sleep(2);      // wait a bit and try again
     }
-    if (sendStatus!=1) {
+    if (rxStatus!=1) {
         printf("UART Timeout\r\n");
         return(-1);
     }
@@ -399,3 +433,29 @@ int main(int argc, char *argv[]) { /*****************MAIN*********************/
 
     close(uzb);
 }   /* Main */
+
+long sw_timer(bool init) {
+  /* This is a software timer. It returns the difference between the saved time
+  and the current time in milliseconds.
+
+  If init = true, save the current
+  timestamp and return 0.
+
+  If init = false, return the difference between the
+  saved timestamp and current timestamp in ms */
+  static struct timespec saved_spec;
+  struct timespec now_spec;
+  long ms; //millseconds
+  time_t s; //seconds
+
+  if (init == true) {
+    clock_gettime(CLOCK_REALTIME, &saved_spec);
+    return 0;
+  } else {
+    clock_gettime(CLOCK_REALTIME, &now_spec);
+    s = now_spec.tv_sec - saved_spec.tv_sec;
+    ms = round(now_spec.tv_nsec / 1.0e6) - round(saved_spec.tv_nsec / 1.0e6);
+    return (s * 1000) + ms;
+  }
+
+}
