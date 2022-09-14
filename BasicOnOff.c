@@ -26,9 +26,12 @@
 #include <math.h>
 #include "ZWave.h"      /* Z-Wave defines */
 
-// Typically a UZB is /dev/ttyACM0 and the UART on the Raspberry Pi GPIO pins is /dev/ttyAMA0
-//#define UART_PORT "/dev/ttyAMA0"
-#define UART_PORT "/dev/tty.usbmodem0004401457991"
+// Change this define to the name of the SerialAPI UART on your system
+// Typical values:
+// UZB3/5  /dev/ttyACM0 
+// UART on the Raspberry Pi GPIO pins is /dev/ttyAMA0
+// UZB7/WSTK is /dev/ttyUSB0 
+#define UART_PORT "/dev/ttyUSB0"
 
 // RX/TX UART buffer size. Most Z-Wave frames are under 64 bytes.
 #define BUF_SIZE 128
