@@ -23,14 +23,24 @@
 #include <stdlib.h>
 #include <time.h>
 #include <stdbool.h>
+#include <math.h>
 #include "ZWave.h"      /* Z-Wave defines */
 
-// Typically a UZB is /dev/ttyACM0 and the UART on the Raspberry Pi GPIO pins is /dev/ttyAMA0
-#define UART_PORT "/dev/ttyAMA0"
-//#define UART_PORT "/dev/ttyACM0"
+// Change this define to the name of the SerialAPI UART on your system
+// Typical values:
+// UZB3/5  /dev/ttyACM0 
+// UART on the Raspberry Pi GPIO pins is /dev/ttyAMA0
+// UZB7/WSTK is /dev/ttyUSB0 
+#define UART_PORT "/dev/ttyUSB0"
 
 // RX/TX UART buffer size. Most Z-Wave frames are under 64 bytes.
 #define BUF_SIZE 128
+
+#define ACK_DELAY_MS 25 // ACK will come much more quickly than this, but
+                        // Linux delays can cause the read to be delayed
+#define SOFT_RESET_DELAY_MS 3000 //soft reset will complete by 3sec
+
+long sw_timer(bool init);
 
 void usage() {
     printf("\nBasicOnOff NodeID CMD [options]\n");
@@ -47,8 +57,8 @@ void usage() {
 }
 
 int uzb;
-unsigned char readBuf[BUF_SIZE];
-unsigned char sendBuf[BUF_SIZE];
+char readBuf[BUF_SIZE];
+char sendBuf[BUF_SIZE];
 
 unsigned char checksum(char *pkt, int len) { /* returns the checksum of PKT */
     int i;
@@ -108,36 +118,64 @@ int SendSerial(const char *pkt,int len) { /* send SerialAPI command PKT of lengt
      * CHECKSUM = XOR of all bytes except SOF. Should be 0 if checksum is OK. NAK is sent if checksum fails.
      */
     char buf[BUF_SIZE];
-    int i,j;
+    int rxStatus;
     int retry;
     int ack=ACK;
+    long ms;
     buf[0]=SOF;
     buf[1]=len+2; // add LEN, TYPE
     buf[2]=REQUEST;
     memcpy(&buf[3],pkt,len);
     buf[len+3]=checksum(&buf[1],len+2);
-#if 0
+#ifdef DEBUG // tx debug
     printf("Sending");
+    int i;
     for (i=0;i<(len+4); i++) {
         printf(" %02X",buf[i]);
     }
     printf("\n");
 #endif
     for (retry=1;retry<=3;retry++) {    // retry up to 3 times
-        tcflush(uzb,TCIFLUSH);  // purge the UART Rx Buffer
+      #ifdef DEBUG
+        printf("Try #%d\n", retry);
+      #endif
+        tcflush(uzb,TCIOFLUSH);  // purge the UART Rx Buffer
         write(uzb,buf,len+4);   // Send the frame to the UZB
-        i=0;
-        for (j=0; i<1 && j<10000; j++) {
-            i=read(uzb,readBuf,1);          // Get the ACK/NAK/CAN
-        }
-        if (i==1) {
-            if (readBuf[0]==ACK) break; // Got the ACK so return
-            write(uzb,&ack,1);          // Got something else so try sending an ACK to clear
+        rxStatus=0;
+        ms = sw_timer(true); // ms will be zero
+        do {
+          rxStatus = read(uzb,readBuf,1);          // Get the ACK/NAK/CAN
+          if (rxStatus == 1) {
+            #ifdef DEBUG
+            printf("read data @ time %ld ms\n",ms);
+            #endif
+            break;
+          }
+          ms = sw_timer(false);
+        } while (ms < ACK_DELAY_MS);
+        if (rxStatus==1) {
+            if (readBuf[0]==ACK)
+            {
+              #ifdef DEBUG
+              printf("ACK RX!\n");
+              #endif
+              break; // Got the ACK so break
+            } else if (readBuf[0] == CAN) {
+              #ifdef DEBUG
+              printf("CAN received, retry\n");
+              #endif
+            } else {
+              #ifdef DEBUG
+              printf("instead of ACK/CAN, received 0x%x\n", readBuf[0]);
+              #endif
+              // Got something other than ACK or CAN, so try sending an ACK to clear
+              write(uzb,&ack,1);
+            }
         }
         sleep(2);      // wait a bit and try again
     }
-    if (i!=1) {
-        printf("UART Timeout");
+    if (rxStatus!=1) {
+        printf("UART Timeout\r\n");
         return(-1);
     }
     return(readBuf[0]);
@@ -145,9 +183,9 @@ int SendSerial(const char *pkt,int len) { /* send SerialAPI command PKT of lengt
 
 int main(int argc, char *argv[]) { /*****************MAIN*********************/
     struct termios Settings; 
-    int count;
     int ack,len,i,j;
     int NodeID;
+    long ms;
 
     if (argc<2) {
         usage();
@@ -160,6 +198,9 @@ int main(int argc, char *argv[]) { /*****************MAIN*********************/
     tcgetattr(uzb,&Settings);
     cfsetispeed(&Settings,B115200);
     cfsetospeed(&Settings,B115200);
+
+    Settings.c_cflag |= CLOCAL; // ignore model control lines
+    Settings.c_cflag |= CREAD; // enable receiver
     Settings.c_cflag &= ~PARENB;
     Settings.c_cflag &= ~CSTOPB;
     Settings.c_cflag &= ~CSIZE;
@@ -199,12 +240,31 @@ int main(int argc, char *argv[]) { /*****************MAIN*********************/
                         if (readBuf[i+4]&(1<<j)) {
                             printf(" %03d", i*8+j+1);
                         }
-                    }  
+                    }
                 }
                 printf("\n");
+                i = readBuf[3] + 4;
+                printf("chip_type=0x%x, chip_version=0x%x\r\n",
+                  readBuf[i], readBuf[i+1]);
             }
         }
-        // TODO - add printing out the HomeID here. Could print out all sorts of info...
+        // Now let's get capabilities
+        sendBuf[0]=FUNC_ID_SERIAL_API_GET_CAPABILITIES;
+        ack=SendSerial(sendBuf,1);
+        if (ack!=ACK) {
+            printf("Unable to send Z-Wave SerialAPI command SERIAL_API_GET_CAPABILITIES %02X",ack);
+        } else {
+            len=GetSerial(readBuf);
+            if (len<20 || readBuf[0]!=FUNC_ID_SERIAL_API_GET_CAPABILITIES ) {
+                printf("Incorrect response = %02X, %02X\n",len,readBuf[0]);
+                printf("%02X, %02X\n",readBuf[1],readBuf[2]);
+            } else {
+                printf("SerialAPI Ver=%d.%d\n",readBuf[1], readBuf[2]);
+                printf("Product Type/Product ID: 0x%x/0x%x\r\n",
+                readBuf[5] << 8 | readBuf[6],
+                readBuf[7] << 8 | readBuf[8]);
+            }
+        }
     }   // INFO
 
     else if (strstr("reset",argv[1])) { // Send a soft reset - takes 1.5s to complete
@@ -213,15 +273,24 @@ int main(int argc, char *argv[]) { /*****************MAIN*********************/
         if (ack!=ACK) {
             printf("Unable to send Z-Wave SerialAPI command API_SOFT_RESET %02X",ack);
         } else {
-            sleep(1); // The UZB should respond with a START after about 1s
+          ms = sw_timer(true); // ms will be zero
+          do {
             len=GetSerial(readBuf);
+            if (len > 0) {
+              #ifdef DEBUG
+              printf("read data @ time %ld ms\n",ms);
+              #endif
+              break;
+            }
+            ms = sw_timer(false);
+          } while (ms < SOFT_RESET_DELAY_MS);
             if (readBuf[0]==FUNC_ID_SERIAL_API_STARTED) {
                 printf("UZB softreset complete\n");
             } else {
                 printf("UZB softreset failed %02X\n",readBuf[0]);
-            }  
+            }
         }
-    } 
+    }
 
     else if (strstr("default",argv[1])) { // Delete the Z-Wave network and reset to factory defaults
         sendBuf[0]=FUNC_ID_ZW_SET_DEFAULT;
@@ -250,7 +319,7 @@ int main(int argc, char *argv[]) { /*****************MAIN*********************/
             for (i=0;i<(10*4) && len<1; i++) {           // wait for ~10s for the user to push a button
                 len=GetSerial(readBuf);                 // wait for 250ms looking for a command
                 if (len>0) {
-#if 1
+#ifdef DEBUG
                     printf("\nlen=%d",len);             // enable these to see each step of the callback process
                     for (j=0;j<len;j++) printf(" %02X",readBuf[j]);
 #endif
@@ -381,3 +450,29 @@ int main(int argc, char *argv[]) { /*****************MAIN*********************/
 
     close(uzb);
 }   /* Main */
+
+long sw_timer(bool init) {
+  /* This is a software timer. It returns the difference between the saved time
+  and the current time in milliseconds.
+
+  If init = true, save the current
+  timestamp and return 0.
+
+  If init = false, return the difference between the
+  saved timestamp and current timestamp in ms */
+  static struct timespec saved_spec;
+  struct timespec now_spec;
+  long ms; //millseconds
+  time_t s; //seconds
+
+  if (init == true) {
+    clock_gettime(CLOCK_REALTIME, &saved_spec);
+    return 0;
+  } else {
+    clock_gettime(CLOCK_REALTIME, &now_spec);
+    s = now_spec.tv_sec - saved_spec.tv_sec;
+    ms = round(now_spec.tv_nsec / 1.0e6) - round(saved_spec.tv_nsec / 1.0e6);
+    return (s * 1000) + ms;
+  }
+
+}
